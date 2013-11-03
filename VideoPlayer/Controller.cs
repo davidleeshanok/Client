@@ -66,14 +66,26 @@ namespace VideoPlayer
             Random random = new Random();
             session = random.Next(4000, 9000).ToString();
 
-            //Exchange keys with the server
+            //Exchange keys with the server using Diffie-Hellman protocol with a generator of 2 and using the given large prime
             String hexPrimeNum = "00e53a3f72c435febe5809c84337575a3e06a60e171f83d500014bcb4c78b1188dd99e9841e96e032ef47e6ae4ca7fa8a5b9cba362ca537c301a1b59fb3eb42c47056fdecb3b0fabcbb49414365bf0367ab8669904ff44762a97e875594865d1fb";
-            String hexGenerator = "000b1460eda8ffa4eec5aabc61bb0cf0bd";
+            int generator = 2;
             BigInteger primeNum = BigInteger.Parse(hexPrimeNum, NumberStyles.HexNumber);
-            BigInteger generator = BigInteger.Parse(hexGenerator, NumberStyles.HexNumber);
-            BigInteger secret = (int)random.Next(0, 1000000000);
-            BigInteger secretMessage = BigInteger.ModPow(generator, secret, primeNum);
-            _RTSPmodel.RTSPSend("KEYEXCHANGE: " + secretMessage);
+            BigInteger secretNum = (int)random.Next(0, 1000000000);
+
+            //Create the clientSecret and send to server
+            BigInteger clientSecret = BigInteger.ModPow(generator, secretNum, primeNum);
+            PushToInfoBox("\nClient secret: " + clientSecret.ToString("X"));
+
+            //Send clientSecret to server in hex form
+            _RTSPmodel.RTSPSend("KEYEXCHANGE:" + clientSecret.ToString("X") + "KEYEND");
+
+            //Receive the serverSecret from the server
+            BigInteger serverSecret = BigInteger.Parse("00" + _RTSPmodel.RTSPReceive(), NumberStyles.HexNumber);
+            PushToInfoBox("\nServer secret: " + serverSecret.ToString("X"));
+
+            //Compute the sharedSecret (key)
+            BigInteger sharedSecret = BigInteger.ModPow(serverSecret, secretNum, primeNum);
+            PushToInfoBox("\nShared secret: " + sharedSecret.ToString("X"));
 
         }
 
