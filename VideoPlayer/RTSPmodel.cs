@@ -71,6 +71,7 @@ namespace VideoPlayer
                 }
             }
         }
+
         public IPAddress GetClientIP()
         {
             return ClientIPAddr;
