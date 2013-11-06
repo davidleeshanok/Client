@@ -182,5 +182,24 @@ namespace VideoPlayer
                 // throw new Exception(e.Message);
             }
         }
+
+        public byte[] GetPayloadAsByteArray()
+        {
+            //get the payload bitstream from the RTPpacket object
+            try
+            {
+
+                int payload_length = this.getpayload_length();
+                byte[] payload = new byte[payload_length];
+                this.getpayload(payload);
+
+                return payload;
+            }
+            catch (Exception e)
+            {
+                return null;
+                // throw new Exception(e.Message);
+            }
+        }
     }
 }

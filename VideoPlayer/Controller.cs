@@ -10,6 +10,7 @@ using System.Xml;
 using System.Security.Cryptography;
 using System.Numerics;
 using System.Globalization;
+using System.Drawing;
 
 namespace VideoPlayer
 {
@@ -37,6 +38,7 @@ namespace VideoPlayer
         EndPoint ServerEP;
 
         private byte[] key, iv, macKey, macIv;
+        private ICryptoTransform decipher;
 
         public void Connect_btn_Click(object sender, EventArgs e)
         {
@@ -72,6 +74,20 @@ namespace VideoPlayer
                 if (this.exchangeKeys())
                     break;
             }
+
+            createCipher();
+        }
+
+        private void createCipher()
+        {
+            //Create a cipher with the outlined properties. CBC mode and  PKCS7 padding are default
+            AesCryptoServiceProvider aesProvider = new AesCryptoServiceProvider();
+            aesProvider.IV = iv;
+            aesProvider.Key = key;
+            aesProvider.BlockSize = 128;
+
+            decipher = aesProvider.CreateDecryptor(key, iv);
+
         }
 
 
@@ -263,7 +279,13 @@ namespace VideoPlayer
             PushToInfoBox("\r\nShared secret: " + sharedSecret.ToString("X"));
 
             //Split up shared secret into the different keys and IVs
-            byte[] sharedSecretByte = sharedSecret.ToByteArray().Reverse().ToArray();
+            byte[] temp = sharedSecret.ToByteArray().Reverse().ToArray();
+            byte[] sharedSecretByte = new byte[96];
+            if (temp.Length == sharedSecretByte.Length)
+                sharedSecretByte = temp;
+            else
+                Buffer.BlockCopy(temp, 1, sharedSecretByte, 0, 96);
+
             key = new byte[32];
             iv = new byte[16];
             macKey = new byte[32];
@@ -312,9 +334,20 @@ namespace VideoPlayer
                 //Extract RTP packet from the UDP packet
                 RTPpacket rtp_packet = new RTPpacket(rcvdp, rcvdp.Length);
 
+                byte[] payload = rtp_packet.GetPayloadAsByteArray();
+                byte[] decipheredPayload = new byte[payload.Length];
+                int blocks = payload.Length / 16;
+
+                
+                for(int i = 0; i < blocks; i++)
+                {
+                 decipher.TransformBlock(payload, i * 16, 16, decipheredPayload, i * 16);
+                }
+                
+                Stream imageInMemory = new MemoryStream(decipheredPayload);
 
                 //get an Image object from the payload bitstream
-                _view.Update_Screen(rtp_packet.GetPayloadAsImage());
+                _view.Update_Screen(Image.FromStream(imageInMemory));
 
                 //print the header bitstream
                 if (_view.DisplayHeader)
