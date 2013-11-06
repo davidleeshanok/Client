@@ -36,8 +36,7 @@ namespace VideoPlayer
         int RTP_PORT; // = 25000; //port where the client will receive the RTP packets
         EndPoint ServerEP;
 
-
-
+        private byte[] key, iv, macKey, macIv;
 
         public void Connect_btn_Click(object sender, EventArgs e)
         {
@@ -54,6 +53,7 @@ namespace VideoPlayer
             catch (Exception ex)
             {
                 PushToInfoBox("Make sure the server is up and listening\r\n and the server IP address and port number are correct");
+                return;
             }
 
             Connected = true;
@@ -66,27 +66,12 @@ namespace VideoPlayer
             Random random = new Random();
             session = random.Next(4000, 9000).ToString();
 
-            //Exchange keys with the server using Diffie-Hellman protocol with a generator of 2 and using the given large prime
-            String hexPrimeNum = "00e53a3f72c435febe5809c84337575a3e06a60e171f83d500014bcb4c78b1188dd99e9841e96e032ef47e6ae4ca7fa8a5b9cba362ca537c301a1b59fb3eb42c47056fdecb3b0fabcbb49414365bf0367ab8669904ff44762a97e875594865d1fb";
-            int generator = 2;
-            BigInteger primeNum = BigInteger.Parse(hexPrimeNum, NumberStyles.HexNumber);
-            BigInteger secretNum = (int)random.Next(0, 1000000000);
-
-            //Create the clientSecret and send to server
-            BigInteger clientSecret = BigInteger.ModPow(generator, secretNum, primeNum);
-            PushToInfoBox("\nClient secret: " + clientSecret.ToString("X"));
-
-            //Send clientSecret to server in hex form
-            _RTSPmodel.RTSPSend("KEYEXCHANGE:" + clientSecret.ToString("X") + "KEYEND");
-
-            //Receive the serverSecret from the server
-            BigInteger serverSecret = BigInteger.Parse("00" + _RTSPmodel.RTSPReceive(), NumberStyles.HexNumber);
-            PushToInfoBox("\nServer secret: " + serverSecret.ToString("X"));
-
-            //Compute the sharedSecret (key)
-            BigInteger sharedSecret = BigInteger.ModPow(serverSecret, secretNum, primeNum);
-            PushToInfoBox("\nShared secret: " + sharedSecret.ToString("X"));
-
+            //Try to exchange keys until success
+            while (true)
+            {
+                if (this.exchangeKeys())
+                    break;
+            }
         }
 
 
@@ -131,7 +116,7 @@ namespace VideoPlayer
                             //construct a new DatagramSocket to receive RTP packets from the server, on port RTP_PORT
                             //RTPsocket = ...
 
-                            
+
                             _RTPmodel = new RTPmodel(_RTSPmodel.GetClientIP(), RTP_PORT);
 
                             IPEndPoint IPRemoteEP = new IPEndPoint(IPAddress.Any, 0);
@@ -166,7 +151,7 @@ namespace VideoPlayer
                 _view.Enable_Pause();
                 _view.Enable_Teardown();
 
-                PushToCommBox(response + "\r\n" );
+                PushToCommBox(response + "\r\n");
 
                 if (!_view.RTSPTesting)
                 {
@@ -225,7 +210,7 @@ namespace VideoPlayer
                 _view.Enable_Setup();
                 _view.Enable_Movie_selection();
 
-                PushToCommBox(response  + "\r\n");
+                PushToCommBox(response + "\r\n");
 
                 if (!_view.RTSPTesting)
                 {
@@ -235,7 +220,7 @@ namespace VideoPlayer
                     //close sockets
                     _RTPmodel.close();
                 }
-     
+
                 //reset RTSP sequence number
                 RTSPSeqNb = 0;
 
@@ -243,13 +228,61 @@ namespace VideoPlayer
             }
 
         }
+        private bool exchangeKeys()
+        {
+            //Exchange keys with the server using Diffie-Hellman protocol with a generator of 2 and using the given large prime
+            String hexPrimeNum = "00e53a3f72c435febe5809c84337575a3e06a60e171f83d500014bcb4c78b1188dd99e9841e96e032ef47e6ae4ca7fa8a5b9cba362ca537c301a1b59fb3eb42c47056fdecb3b0fabcbb49414365bf0367ab8669904ff44762a97e875594865d1fb";
+            int generator = 2;
+            BigInteger primeNum = BigInteger.Parse(hexPrimeNum, NumberStyles.HexNumber);
+
+            //Generate secret number
+            byte[] data = new byte[95];
+            Random random = new Random();
+            random.NextBytes(data);
+            BigInteger secretNum = new BigInteger(data);
+            if (secretNum.CompareTo(0) < 0)
+                secretNum = BigInteger.Negate(secretNum);
+
+            //Create the clientSecret and send to server
+            BigInteger clientSecret = BigInteger.ModPow(generator, secretNum, primeNum);
+            PushToInfoBox("\r\nClient secret: " + clientSecret.ToString("X"));
+
+            //Send clientSecret to server in hex form
+            _RTSPmodel.RTSPSend("KEYEXCHANGE:" + clientSecret.ToString("X") + "KEYEND");
+
+            //Receive the serverSecret from the server
+            string serverResponse = _RTSPmodel.RTSPReceive();
+            if (serverResponse.Equals("RETRYKEYEXCHANGE"))
+                return false;
+
+            BigInteger serverSecret = BigInteger.Parse("00" + serverResponse, NumberStyles.HexNumber);
+            PushToInfoBox("\r\nServer secret: " + serverSecret.ToString("X"));
+
+            //Compute the sharedSecret (key)
+            BigInteger sharedSecret = BigInteger.ModPow(serverSecret, secretNum, primeNum);
+            PushToInfoBox("\r\nShared secret: " + sharedSecret.ToString("X"));
+
+            //Split up shared secret into the different keys and IVs
+            byte[] sharedSecretByte = sharedSecret.ToByteArray().Reverse().ToArray();
+            key = new byte[32];
+            iv = new byte[16];
+            macKey = new byte[32];
+            macIv = new byte[16];
+            Buffer.BlockCopy(sharedSecretByte, 0, key, 0, 32);
+            Buffer.BlockCopy(sharedSecretByte, 32, iv, 0, 16);
+            Buffer.BlockCopy(sharedSecretByte, 48, macKey, 0, 32);
+            Buffer.BlockCopy(sharedSecretByte, 80, macIv, 0, 16);
+
+            return true;
+        }
+
 
         public void my_View_FormClosing(object sender, FormClosingEventArgs e)
         {
             if (Setuped)
             {
                 //Send TEARDOWN message to the server
-             //   _RTSPmodel.RTSPSend(Form_command("TEARDOWN"));
+                //   _RTSPmodel.RTSPSend(Form_command("TEARDOWN"));
                 _RTSPmodel.shutdown();
             }
         }
@@ -282,7 +315,7 @@ namespace VideoPlayer
 
                 //get an Image object from the payload bitstream
                 _view.Update_Screen(rtp_packet.GetPayloadAsImage());
-                
+
                 //print the header bitstream
                 if (_view.DisplayHeader)
                     PushToInfoBox(rtp_packet.printheader() + "\r\n");
@@ -347,16 +380,16 @@ namespace VideoPlayer
             {
                 string receivedData = _RTSPmodel.RTSPReceive(); // block until server sends message
 
-                 StringReader msg = new StringReader(receivedData);
-                 StringWriter command = new StringWriter();
+                StringReader msg = new StringReader(receivedData);
+                StringWriter command = new StringWriter();
                 // Now, read from StringReader.      
-          
-                // read response line
-                 statusLine = msg.ReadLine();
-                 command.WriteLine(statusLine);
 
-                string ss = statusLine.Substring(statusLine.IndexOf(" ")+1);
-                reply_code = Int32.Parse(ss.Substring(0,ss.LastIndexOf(" ")));
+                // read response line
+                statusLine = msg.ReadLine();
+                command.WriteLine(statusLine);
+
+                string ss = statusLine.Substring(statusLine.IndexOf(" ") + 1);
+                reply_code = Int32.Parse(ss.Substring(0, ss.LastIndexOf(" ")));
 
                 //if reply code is OK get and print the 2 other lines
                 if (reply_code == 200)
@@ -401,16 +434,16 @@ namespace VideoPlayer
             //      CSeq: 2
             //      Session: 123456
 
-           StringWriter command = new StringWriter();
+            StringWriter command = new StringWriter();
 
-           // Add Method and a space
-           command.Write(Method + " ");
+            // Add Method and a space
+            command.Write(Method + " ");
 
-           // Add Request_URI and a space
-           command.Write("rtsp://" + ServerIP + ":" + ServerPort.ToString() + "/" + VideoFileName + " ");
+            // Add Request_URI and a space
+            command.Write("rtsp://" + ServerIP + ":" + ServerPort.ToString() + "/" + VideoFileName + " ");
 
-           // Add RTSP-Version with CRLF
-            command.WriteLine ("RTSP/1.0");
+            // Add RTSP-Version with CRLF
+            command.WriteLine("RTSP/1.0");
 
             //write the CSeq line with CRLF 
             command.WriteLine("CSeq: " + RTSPSeqNb.ToString());
@@ -422,7 +455,7 @@ namespace VideoPlayer
             else
                 command.WriteLine("Session: " + session);
 
-            return (command.ToString());          
+            return (command.ToString());
         }
     }
 }
