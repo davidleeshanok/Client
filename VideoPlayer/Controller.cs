@@ -38,7 +38,7 @@ namespace VideoPlayer
         EndPoint ServerEP;
 
         private byte[] key, iv, macKey, macIv;
-        private ICryptoTransform decipher;
+        AesCryptoServiceProvider aesProvider;
 
         public void Connect_btn_Click(object sender, EventArgs e)
         {
@@ -81,13 +81,10 @@ namespace VideoPlayer
         private void createCipher()
         {
             //Create a cipher with the outlined properties. CBC mode and  PKCS7 padding are default
-            AesCryptoServiceProvider aesProvider = new AesCryptoServiceProvider();
+            aesProvider = new AesCryptoServiceProvider();
             aesProvider.IV = iv;
             aesProvider.Key = key;
             aesProvider.BlockSize = 128;
-
-            decipher = aesProvider.CreateDecryptor(key, iv);
-
         }
 
 
@@ -336,13 +333,9 @@ namespace VideoPlayer
 
                 byte[] payload = rtp_packet.GetPayloadAsByteArray();
                 byte[] decipheredPayload = new byte[payload.Length];
-                int blocks = payload.Length / 16;
 
-                
-                for(int i = 0; i < blocks; i++)
-                {
-                 decipher.TransformBlock(payload, i * 16, 16, decipheredPayload, i * 16);
-                }
+                ICryptoTransform decipher = aesProvider.CreateDecryptor(key, iv);
+                decipheredPayload = decipher.TransformFinalBlock(payload, 0, payload.Length);
                 
                 Stream imageInMemory = new MemoryStream(decipheredPayload);
 
