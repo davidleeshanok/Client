@@ -11,6 +11,7 @@ using System.Security.Cryptography;
 using System.Numerics;
 using System.Globalization;
 using System.Drawing;
+using System.Text.RegularExpressions;
 
 namespace VideoPlayer
 {
@@ -39,6 +40,7 @@ namespace VideoPlayer
 
         private byte[] key, iv, macKey, macIv;
         AesCryptoServiceProvider aesProvider;
+        int seq = 0;
 
         public void Connect_btn_Click(object sender, EventArgs e)
         {
@@ -331,15 +333,29 @@ namespace VideoPlayer
                 //Extract RTP packet from the UDP packet
                 RTPpacket rtp_packet = new RTPpacket(rcvdp, rcvdp.Length);
 
+                //Check HMAC for authentication
+                byte[] packet = new byte[rtp_packet.getlength()];
+                rtp_packet.getpacket(packet);
+                HMACMD5 hmac = new HMACMD5(macKey);
+                byte[] clientHmac = hmac.ComputeHash(packet);
+                byte[] serverHmac = rtp_packet.getHmac();
+                for (int i = 0; i < clientHmac.Length; i++)
+                {
+                    if (clientHmac[i] != serverHmac[i])
+                    {
+                        PushToInfoBox("Packet has been tampered with!!!");
+                        break;
+                    }
+                }
+
+                //decrypt the payload
                 byte[] payload = rtp_packet.GetPayloadAsByteArray();
                 byte[] decipheredPayload = new byte[payload.Length];
-
                 ICryptoTransform decipher = aesProvider.CreateDecryptor(key, iv);
                 decipheredPayload = decipher.TransformFinalBlock(payload, 0, payload.Length);
                 
+                //display the decrypted payload
                 Stream imageInMemory = new MemoryStream(decipheredPayload);
-
-                //get an Image object from the payload bitstream
                 _view.Update_Screen(Image.FromStream(imageInMemory));
 
                 //print the header bitstream
@@ -422,6 +438,13 @@ namespace VideoPlayer
                 {
                     // read sequence line
                     CSeqLine = msg.ReadLine();
+
+                    //handle replay attacks
+                    if(seq >= int.Parse(Regex.Match(CSeqLine, @"\d+").Value))
+                        return 0;
+                    else
+                        seq = int.Parse(Regex.Match(CSeqLine, @"\d+").Value);
+
                     command.WriteLine(CSeqLine);
                     // read session line
                     sessionLine = msg.ReadLine();

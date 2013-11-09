@@ -13,6 +13,7 @@ namespace VideoPlayer
         
         //size of the RTP header:
         static int HEADER_SIZE = 12;
+        static int HMAC_SIZE = 16;
 
         //Fields that compose the RTP header
         public int Version;
@@ -32,6 +33,9 @@ namespace VideoPlayer
         public int payload_size;
         //Bitstream of the RTP payload
         public byte[] payload;
+
+        //Bitstream of the RTP hmac
+        public byte[] hmac;
 
 
         //--------------------------
@@ -56,16 +60,26 @@ namespace VideoPlayer
                     header[i] = packet[i];
 
                 //get the payload bitstream:
-                payload_size = packet_size - HEADER_SIZE;
+                payload_size = packet_size - HEADER_SIZE - HMAC_SIZE;
                 payload = new byte[payload_size];
-                for (int i = HEADER_SIZE; i < packet_size; i++)
+                for (int i = HEADER_SIZE; i < packet_size - HMAC_SIZE; i++)
                     payload[i - HEADER_SIZE] = packet[i];
+
+                //get the hmac bitstream
+                hmac = new byte[HMAC_SIZE];
+                for (int i = HEADER_SIZE + payload_size; i < HMAC_SIZE + HEADER_SIZE + payload_size; i++)
+                    hmac[i - HEADER_SIZE - payload_size] = packet[i];
 
                 //interpret the changing fields of the header:
                 PayloadType = header[1] & 127;
                 SequenceNumber = unsigned_int(header[3]) + 256 * unsigned_int(header[2]);
                 TimeStamp = unsigned_int(header[7]) + 256 * unsigned_int(header[6]) + 65536 * unsigned_int(header[5]) + 16777216 * unsigned_int(header[4]);
             }
+        }
+
+        public byte[] getHmac()
+        {
+            return hmac;
         }
 
         //--------------------------

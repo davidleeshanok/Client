@@ -23,7 +23,7 @@ namespace VideoPlayer
         /// Returns a UDP datagram that was sent by a remote host.
         public byte[] Receive(EndPoint EP)
         {
-            byte[] data_in = new byte[62028];
+            byte[] data_in = new byte[62044];
 
             RTPsocket.ReceiveTimeout = 1000;
             try
